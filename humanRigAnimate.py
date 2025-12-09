@@ -1,7 +1,7 @@
 import bpy
 
-#sides = ['R', 'L']
-sides = ['R']
+sides = ['R', 'L']
+#sides = ['R']
 
 armatures = ['metarig']
 limbs = {
@@ -16,7 +16,9 @@ limbs = {
         2: [ ['shoulder.ctrl.SIDE', 'Z', 0.2] ]
     },
     'arm.ctrl.SIDE' : {
-        0: [ ['hand.ctrl.SIDE', 'X', -1] ]
+        0: [ ['hand.ctrl.SIDE', 'X', -1] ],
+        1: [ ['hand.ctrl.SIDE', 'Y', -1] ],
+        2: [ ['hand.ctrl.SIDE', 'Z', 1] ]
     },
     'hand.SIDE' : {
         0: [ ['hand.ctrl.SIDE', 'X', -1] ],
@@ -26,12 +28,14 @@ limbs = {
         1: [ ['hand.ctrl.SIDE', 'Z', -0.2] ]
     },
     'leg.ctrl.SIDE' : {
-        0: [ ['foot.ctrl.SIDE', 'X', -1] ]
+        0: [ ['foot.ctrl.SIDE', 'X', -1] ],
+        1: [ ['foot.ctrl.SIDE', 'Y', -1] ],
+        2: [ ['foot.ctrl.SIDE', 'Z', 1] ]
     },
     'foot.SIDE' : {
-        0: [ ['foot.ctrl.SIDE', 'Z', -1] ],
+        0: [ ['foot.ctrl.SIDE', 'X', -1] ],
         1: [ ['foot.ctrl.SIDE', 'Y', 1] ],
-        2: [ ['foot.ctrl.SIDE', 'X', 1] ]
+        2: [ ['foot.ctrl.SIDE', 'Z', -1] ]
     },
     'toe.SIDE' : {
         0: [ ['toe.ctrl.SIDE', 'X', 1] ]
@@ -138,51 +142,28 @@ torso = {
         1: [ ['head.ctrl', 'Y', 1] ],
         2: [ ['head.ctrl', 'Z', 1] ]
     }
-}                      
-def boneDrivers(armature, items, sides=['R']):
-    for side in sides:
-        for kObj, vObj in items.items():
-            kObj = kObj.replace('SIDE', side)
-            driven = armature.pose.bones[kObj]
-            driven.rotation_mode = 'XYZ'
-            for kAttr, vAttr in vObj.items():
-                driver = driven.driver_add('rotation_euler', kAttr).driver
-                driver.type = 'SCRIPTED'
-                driver.expression = 'var'
-                for v in vAttr:
-                    var = driver.variables.new()
-                    var.type = 'TRANSFORMS'
-                    vSide = v[0].replace('SIDE', side)
-                    target = var.targets[0]
-                    target.id = armature
-                    target.bone_target = vSide
-                    target.transform_type = f'ROT_{v[1]}'
-                    target.transform_space = 'LOCAL_SPACE'
-                    driver.expression += f' * {v[2]}'    
-                        
-                        
-for a in armatures:
-    armature = bpy.data.objects[a]
-    if armature.animation_data and armature.animation_data.drivers:
-        # Get a list of drivers (iterate over a copy to avoid issues during removal)
-        drivers_to_remove = list(armature.animation_data.drivers)
-        for driver in drivers_to_remove:
-            # Remove the driver using its data_path
-            armature.driver_remove(driver.data_path)  
-    boneDrivers(armature, torso)
-    boneDrivers(armature, limbs, sides)
-
+}
 
 #bone constraints
-constraints = {
-    'knee.pole.SIDE' : {
-        'COPY_LOCATION': {
-            'subtarget': 'foot.ctrl.SIDE', 'target_space': 'LOCAL', 'owner_space': 'LOCAL', 'use_offset': True, 'influence': 0.5, 'use_offset': True
+bonesConstr = {
+    'forearm.SIDE': {
+        'IK': {
+            'subtarget': 'arm.ctrl.SIDE', 'pole_subtarget': 'elbow.pole.SIDE', 'chain_count': 2
         }
     },
     'elbow.pole.SIDE' : {
         'COPY_LOCATION': {
-            'subtarget': 'hand.ctrl.SIDE', 'target_space': 'LOCAL', 'owner_space': 'LOCAL', 'invert_x': True, 'invert_y': True, 'use_offset': True
+            'subtarget': 'hand.ctrl.SIDE', 'target_space': 'LOCAL_WITH_PARENT', 'owner_space': 'WORLD', 'invert_x': True, 'invert_y': True, 'use_offset': True
+        }
+    },
+    'shin.SIDE': {
+        'IK': {
+            'subtarget': 'leg.ctrl.SIDE', 'pole_subtarget': 'knee.pole.SIDE', 'chain_count': 2
+        }
+    },
+    'knee.pole.SIDE' : {
+        'COPY_LOCATION': {
+            'subtarget': 'foot.ctrl.SIDE', 'target_space': 'LOCAL_WITH_PARENT', 'owner_space': 'WORLD', 'invert_x': True, 'invert_y': True, 'use_z': False, 'use_offset': True
         }
     },
     'thumb.ctrl.SIDE' : {
@@ -212,29 +193,71 @@ constraints = {
     },
     'fingers.ctrl.SIDE' : {
         'LIMIT_ROTATION': {
-            'euler_order': 'XYZ', 'use_limit_x': True, 'min_x': 0.0, 'max_x': 2.0, 'owner_space': 'LOCAL'
+            'euler_order': 'XYZ', 'use_limit_x': False, 'min_x': 0, 'max_x': 0, 'owner_space': 'LOCAL'
         }
     }
-}
 
-
-for a in armatures:
-    armature = bpy.data.objects[a]                             
+}               
+def boneDrivers(armature, items, sides=['R']):
     for side in sides:
-        for kBone, vConstraints in constraints.items():
+        for kObj, vObj in items.items():
+            kObj = kObj.replace('SIDE', side)
+            driven = armature.pose.bones[kObj]
+            driven.rotation_mode = 'XYZ'
+            for kAttr, vAttr in vObj.items():
+                driver = driven.driver_add('rotation_euler', kAttr).driver
+                driver.type = 'SCRIPTED'
+                driver.expression = 'var'
+                for v in vAttr:
+                    var = driver.variables.new()
+                    var.type = 'TRANSFORMS'
+                    vSide = v[0].replace('SIDE', side)
+                    target = var.targets[0]
+                    target.id = armature
+                    target.bone_target = vSide
+                    target.transform_type = f'ROT_{v[1]}'
+                    target.transform_space = 'LOCAL_SPACE'
+                    driver.expression += f' * {v[2]}'    
+
+def boneConstraints(armature, items, sides=['R']):    
+    for side in sides:
+        for kBone, vConstraints in items.items():
             kBone = kBone.replace('SIDE', side)
             bone = armature.pose.bones.get(kBone)
-            if bone.constraints:
-                constraints = list(bone.constraints)
-                for c in constraints:
-                    bone.constraints.remove(c)
             for cK, cV in vConstraints.items():
                 constr = bone.constraints.new(cK)
-                if 'COPY' in cK:
+                if 'LIMIT' not in cK:
                     constr.target = armature
+                
                 for modK, modV in cV.items():
                     if modK == 'subtarget':
                         modV = modV.replace('SIDE', side)
+                    if modK == 'pole_subtarget':
+                        constr.pole_target = armature
+                        modV = modV.replace('SIDE', side)
+  
                     setattr(constr, modK, modV)
-                    
+
+
+for a in armatures:
+    armature = bpy.data.objects[a]
+    if armature.animation_data and armature.animation_data.drivers:
+        # Get a list of drivers (iterate over a copy to avoid issues during removal)
+        drivers_to_remove = list(armature.animation_data.drivers)
+        for driver in drivers_to_remove:
+            # Remove the driver using its data_path
+            armature.driver_remove(driver.data_path)  
+    boneDrivers(armature, torso)
+    boneDrivers(armature, limbs, sides)
+    
+    
+for a in armatures:
+    armature = bpy.data.objects[a]                             
+    bones = armature.pose.bones
+    for bone in bones:
+        if bone.constraints:
+            constraints = list(bone.constraints)
+            for c in constraints:
+                bone.constraints.remove(c)
+    boneConstraints(armature, bonesConstr, sides)
 
